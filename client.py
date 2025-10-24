@@ -19,7 +19,20 @@ def receive_messages(sock):
             if not data:
                 print("Server disconnected.")
                 break
-            print(f"\nServer: {data}\n")  # 保持输入提示
+                
+            if data.startswith("PRIVATE|"):
+                parts = data.split('|', 2)
+                if len(parts) == 3:
+                    sender, message = parts[1], parts[2]
+                    print(f"\n[Private from {sender}]: {message}\n", end="")
+            elif data.startswith("PRIVATE_START|"):
+                sender = data.split('|')[1]
+                print(f"\nSYSTEM: {sender} started a private chat with you\n", end="")
+            elif data.startswith("PRIVATE_END|"):
+                sender = data.split('|')[1]
+                print(f"\nSYSTEM: {sender} ended the private chat\n", end="")
+            else:
+                print(f"\nServer: {data}\n", end="")
         except ConnectionError:
             print("Connection lost!")
             break
@@ -36,17 +49,40 @@ def login(username, password):
         recv_thread = threading.Thread(target=receive_messages, args=(sock,), daemon=True)
         recv_thread.start()
         
+        in_private_chat = False
+        private_with = None
+        
         # 主线程负责发送消息
         while True:
-            time.sleep(0.2)
             msg = input("Enter message: ")
-            if msg.lower() == 'logout':
-                print("You logout")
-                break
-            sock.sendall(msg.encode('utf-8'))
-
             
-        
+            if in_private_chat:
+                if msg == "# exit":
+                    sock.sendall("# exit".encode('utf-8'))
+                    in_private_chat = False
+                    private_with = None
+                    print("Exited private chat")
+                    continue
+                
+                sock.sendall(msg.encode('utf-8'))
+                continue
+            
+            if msg.startswith("@"):
+                target_user = msg[1:].split()[0] if len(msg) > 1 else ""
+                if target_user:
+                    sock.sendall(msg.encode('utf-8'))
+                    in_private_chat = True
+                    private_with = target_user
+                    print(f"Started private chat with {target_user} (type '# exit' to end)")
+                continue
+            
+            if msg.lower() == 'logout':
+                sock.sendall("LOGOUT".encode('utf-8'))
+                print("You logged out")
+                break
+                
+            sock.sendall(msg.encode('utf-8'))
+            
         sock.close()
     else:
         print("Login failed:", response)

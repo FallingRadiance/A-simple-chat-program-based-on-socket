@@ -72,11 +72,43 @@ class Server:
     def handle_client(self, conn, addr):
         try:
             username = None
+            in_private_chat = False
+            private_with = None
+            
             while True:
                 data = conn.recv(1024).decode('utf-8')
                 print(f"Receive message from port {addr}: {data} ")
                 if not data:
                     break
+
+                if in_private_chat:
+                    if data == "# exit":
+                        if private_with:
+                            self.end_private_chat(username, private_with)
+                            conn.sendall("SYSTEM|Exited private chat".encode('utf-8'))
+                            in_private_chat = False
+                            private_with = None
+                        continue
+                    
+                    if private_with:
+                        self.send_private_message(username, private_with, data)
+                    continue
+
+                if data.startswith("@"):
+                    parts = data.split(maxsplit=1)
+                    if len(parts) >= 1:
+                        target_user = parts[0][1:]  # 去掉@符号
+                        if target_user == username:
+                            conn.sendall("ERROR|Cannot chat with yourself".encode('utf-8'))
+                            continue
+                        
+                        if self.start_private_chat(username, target_user):
+                            in_private_chat = True
+                            private_with = target_user
+                            conn.sendall(f"SYSTEM|Started private chat with {target_user}".encode('utf-8'))
+                        else:
+                            conn.sendall(f"ERROR|User {target_user} not online".encode('utf-8'))
+                    continue
 
                 parts = data.split('|')
                 command = parts[0]
@@ -130,6 +162,48 @@ class Server:
         """已登录用户的主逻辑"""
         conn.sendall(f"Welcome, {username}!".encode('utf-8'))
 
+
+    def send_private_message(self, sender, receiver, message):
+        """发送私聊消息"""
+        with self.lock:
+            if receiver in self.online_users:
+                try:
+                    self.online_users[receiver].sendall(
+                        f"PRIVATE|{sender}|{message}".encode('utf-8')
+                    )
+                    return True
+                except ConnectionError:
+                    self.remove_online_user(receiver)
+            return False
+        
+
+    def start_private_chat(self, sender, receiver):
+        """开始私聊"""
+        with self.lock:
+            if receiver in self.online_users:
+                try:
+                    self.online_users[receiver].sendall(
+                        f"PRIVATE_START|{sender}".encode('utf-8')
+                    )
+                    return True
+                except ConnectionError:
+                    self.remove_online_user(receiver)
+            return False
+
+
+    def end_private_chat(self, sender, receiver):
+        """结束私聊"""
+        with self.lock:
+            if receiver in self.online_users:
+                try:
+                    self.online_users[receiver].sendall(
+                        f"PRIVATE_END|{sender}".encode('utf-8')
+                    )
+                    return True
+                except ConnectionError:
+                    self.remove_online_user(receiver)
+            return False
+        
 
     def run_server(self):
         print("server is running...")
