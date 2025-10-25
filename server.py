@@ -15,6 +15,7 @@ class Server:
 
     def create_group(self, username, groupname):
         """创建群聊"""
+        # 创建群聊，设置创建者，并将创建者加入群组成员
         with self.lock:
             if groupname in self.groups:
                 return False
@@ -174,7 +175,7 @@ class Server:
                         
                         if current_group:
                             # 广播消息到群聊
-                            message = f"\nGROUP|{current_group}|{username}|{data}"
+                            message = f"GROUP|{current_group}|{username}|{data}"
                             self.broadcast_to_group(
                                 current_group,
                                 message,
@@ -187,6 +188,10 @@ class Server:
                         if self.create_group(username, groupname):
                             response = f"\n{'*'*50}\nSYSTEM|You created group {groupname}\n{'*'*50}\n"
                             conn.sendall(response.encode('utf-8'))
+
+                            in_group_chat = True
+                            current_group = groupname
+
                             response = f"\n{'*'*50}\nNOTICE|{username} created group {groupname}\n{'*'*50}\n"
                             self.broadcast(response)
                         else:
@@ -195,12 +200,14 @@ class Server:
 
                     if data.startswith("# join "):
                         groupname = data[7:]
+                        # 如果成功加入，响应，并广播
                         if self.join_group(username, groupname):
                             response = f"\n{'*'*50}\nSYSTEM|You joined group {groupname}\n{'*'*50}\n"
                             conn.sendall(response.encode('utf-8'))
 
                             in_group_chat = True
                             current_group = groupname
+                            
                             message = f"\n{'*'*50}\nNOTICE|{username} joined group {groupname}\n{'*'*50}\n"
                             self.broadcast_to_group(
                                 groupname,
@@ -208,7 +215,7 @@ class Server:
                                 exclude_username=username
                             )
                         else:
-                            conn.sendall(f"ERROR|Group {groupname} not found or already joined".encode('utf-8'))
+                            conn.sendall(f"{'*'*50}\nERROR|Group {groupname} not found or already joined\n{'*'*50}\n".encode('utf-8'))
                         continue
 
                     if in_private_chat:

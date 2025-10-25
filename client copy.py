@@ -46,21 +46,21 @@ def receive_messages(sock):
                 parts = data.split('|', 3)
                 if len(parts) == 4:
                     _, groupname, sender, message = parts
-                    print(f"\n[Group {groupname} from {sender}]: {message}\n", end="")
+                    print(f"[Group {groupname} from {sender}]: {message}\n")
 
             elif data.startswith("PRIVATE|"):
                 parts = data.split('|', 2)
                 if len(parts) == 3:
                     sender, message = parts[1], parts[2]
-                    print(f"\n[Private from {sender}]: {message}\n", end="")
+                    print(f"\n[Private from {sender}]: {message}\n")
 
             elif data.startswith("PRIVATE_START|"):
                 sender = data.split('|')[1]
-                print(f"\nSYSTEM: {sender} started a private chat with you\n", end="")
+                print('*'*50,f"\nSYSTEM: {sender} started a private chat with you\n",'*'*50, end="")
 
             elif data.startswith("PRIVATE_END|"):
                 sender = data.split('|')[1]
-                print(f"\nSYSTEM: {sender} ended the private chat\n", end="")
+                print('*'*50, f"\nSYSTEM: {sender} ended the private chat\n",'*'*50, end="")
 
             else:
                 print(f"\nServer: {data}\n", end="")
@@ -142,6 +142,8 @@ def login(username, password):
             if msg.startswith("# group "):
                 groupname = msg[8:]
                 sock.sendall(f"# group {groupname}".encode('utf-8'))
+                in_group_chat = True # 
+                current_group = groupname # 
                 continue
                 
             if msg.startswith("# join "):
