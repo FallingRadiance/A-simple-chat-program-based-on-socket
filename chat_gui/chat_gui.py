@@ -3,6 +3,8 @@ from tkinter import scrolledtext, messagebox, simpledialog
 import socket
 import threading
 import time
+import os
+
 
 class ChatClientGUI:
     def __init__(self):
@@ -16,7 +18,8 @@ class ChatClientGUI:
         self.in_private_chat = False
         self.in_group_chat = False
         self.current_group = None
-        
+        self.received_files_dir = "received_files"  # 接收文件保存目录
+        os.makedirs(self.received_files_dir, exist_ok=True)  # 确保目录存在
         # 创建界面
         self.create_widgets()
         
@@ -193,6 +196,7 @@ class ChatClientGUI:
                 if not data:
                     break
                     
+                # 检查是否是文件传输消息
                 if data.startswith(b"FILE_TRANSFER|"):
                     self.handle_file_transfer(data)
                     continue
@@ -252,6 +256,9 @@ class ChatClientGUI:
         if target:
             self.socket.sendall(f"@{target}".encode('utf-8'))
             self.append_message("系统", f"已请求与 {target} 私聊", 'system')
+            self.in_private_chat = True
+            self.private_with = target  # 记录私聊对象
+            self.update_status()  # 新增
     
     def create_group(self):
         """创建群组"""
@@ -262,6 +269,9 @@ class ChatClientGUI:
         if group:
             self.socket.sendall(f"# group {group}".encode('utf-8'))
             self.append_message("系统", f"已创建群组 {group}", 'system')
+            self.in_group_chat = True
+            self.current_group = group
+            self.update_status()  # 新增
     
     def join_group(self):
         """加入群组"""
@@ -274,28 +284,57 @@ class ChatClientGUI:
             self.append_message("系统", f"已加入群组 {group}", 'system')
             self.in_group_chat = True
             self.current_group = group
+            self.update_status()  # 新增
     
     def exit_chat(self):
         """退出当前聊天"""
         if not self.connected:
             return
             
-        if self.in_group_chat:
-            self.socket.sendall("# exit".encode('utf-8'))
-            self.append_message("系统", f"已退出群组 {self.current_group}", 'system')
-            self.in_group_chat = False
-            self.current_group = None
-        elif self.in_private_chat:
-            self.socket.sendall("# exit".encode('utf-8'))
-            self.append_message("系统", "已退出私聊", 'system')
-            self.in_private_chat = False
+        try:
+            if self.in_group_chat:
+                self.socket.sendall("# exit".encode('utf-8'))
+                self.append_message("系统", f"已退出群组 {self.current_group}", 'system')
+                self.in_group_chat = False
+                self.current_group = None
+                
+            elif self.in_private_chat:
+                self.socket.sendall("# exit".encode('utf-8'))
+                self.append_message("系统", "已退出私聊", 'system')
+                self.in_private_chat = False
+                self.private_with = None  # 新增：清除私聊对象
+                
+            else:
+                self.append_message("系统", "当前没有活跃的聊天会话", 'system')
+                
+            # self.exit_btn.config(state='disabled')  # 禁用退出按钮
+            self.append_message("系统", "正在退出...", 'system')
+            self.update_status()  # 更新状态显示
+            
+        except Exception as e:
+            self.append_message("系统", f"退出失败: {str(e)}", 'error')
     
+
+    def update_status(self):
+        """更新状态显示"""
+        if self.in_group_chat:
+            status = f"状态: 群聊中 ({self.current_group})"
+        elif self.in_private_chat:
+            status = f"状态: 私聊中 ({self.private_with})"
+        else:
+            status = "状态: 普通聊天模式"
+        
+        self.status_var.set(status)
+
+
     def send_file(self):
         """发送文件"""
         if not self.connected:
             return
             
-        filename = filedialog.askopenfilename(title="选择要发送的文件")
+        filename = filedialog.askopenfilename(
+            title="选择要发送的文件"
+        )
         if not filename:
             return
             
@@ -303,27 +342,97 @@ class ChatClientGUI:
             with open(filename, 'rb') as f:
                 file_data = f.read()
             
-            file_info = f"{filename}|{len(file_data)}"
+            # 构造文件信息 (原始文件名|文件大小)
+            file_info = f"{os.path.basename(filename)}|{len(file_data)}"
+            
+            # 构建传输协议 - 修改为与服务端一致的协议头
             header = f"FILE_START|{file_info}|FILE_END|".encode('utf-8')
             self.socket.sendall(header + file_data)
-            self.append_message("系统", f"已发送文件 {filename}", 'system')
             
+            self.append_message("系统", 
+                f"已发送文件: {filename}", 
+                'system')
+                
         except Exception as e:
-            self.append_message("系统", f"发送文件失败: {str(e)}", 'error')
+            self.append_message("系统", 
+                f"发送文件失败: {str(e)}", 
+                'error')
     
     def handle_file_transfer(self, data):
-        """处理文件传输"""
-        parts = data.split(b"|", 3)
-        if len(parts) == 4:
-            _, sender, file_info, file_data = parts
-            sender = sender.decode('utf-8')
-            file_info = file_info.decode('utf-8')
-            
-            self.append_message("系统", f"收到来自 {sender} 的文件: {file_info}", 'system')
-            
-            # 在实际应用中，这里应该弹出保存对话框
-            # 这里简化为打印信息
-            print(f"Received file: {file_info}")
+        """处理接收到的文件"""
+        # data协议：FILE_TRANSFER|{sender}|{filename}|{len(file_data)}|file_data
+        if data.startswith(b"FILE_TRANSFER|"):
+            try:
+                parts = data.split(b"|", 4)
+                if len(parts) == 5:
+                    _, sender, file_name, file_size, file_data = parts
+                    sender = sender.decode('utf-8')
+                    file_name = file_name.decode('utf-8')
+                    file_size = file_size.decode('utf-8')
+                    # 显示接收提示
+                    self.append_message("系统", 
+                        f"收到来自 {sender} 的文件: {file_name},共{file_size}字节", 
+                        'system')
+
+                    # 弹出保存对话框
+                    save_path = filedialog.asksaveasfilename(
+                        initialdir=self.received_files_dir,
+                        initialfile=os.path.basename(file_name),
+                        title="保存接收的文件",
+                        filetypes=[("All files", "*.*")]
+                    )
+                    
+                    if save_path:
+                        with open(save_path, 'wb') as f:
+                            f.write(file_data)
+                        self.append_message("系统", 
+                            f"文件已保存到: {save_path}", 
+                            'system')
+                    else:
+                        self.append_message("系统", 
+                            "文件接收已取消", 
+                            'system')
+            except Exception as e:
+                self.append_message("系统", 
+                    f"文件接收失败: {str(e)}", 
+                    'error')
+        # try:
+        #     # 解析文件数据 (格式: FILE_TRANSFER|发送者|文件名|文件大小|文件内容)
+        #     parts = data.split(b"|", 4)
+        #     if len(parts) == 5:
+        #         _, sender, filename, filesize, file_data = parts
+        #         sender = sender.decode('utf-8')
+        #         filename = filename.decode('utf-8')
+        #         filesize = int(filesize.decode('utf-8'))
+                
+        #         # 显示接收提示
+        #         self.append_message("系统", 
+        #             f"收到来自 {sender} 的文件: {filename} ({filesize}字节)", 
+        #             'system')
+                
+        #         # 弹出保存对话框
+        #         save_path = filedialog.asksaveasfilename(
+        #             initialdir=self.received_files_dir,
+        #             initialfile=os.path.basename(filename),
+        #             title="保存接收的文件",
+        #             filetypes=[("All files", "*.*")]
+        #         )
+                
+        #         if save_path:
+        #             with open(save_path, 'wb') as f:
+        #                 f.write(file_data)
+        #             self.append_message("系统", 
+        #                 f"文件已保存到: {save_path}", 
+        #                 'system')
+        #         else:
+        #             self.append_message("系统", 
+        #                 "文件接收已取消", 
+        #                 'system')
+                    
+        # except Exception as e:
+        #     self.append_message("系统", 
+        #         f"文件接收失败: {str(e)}", 
+        #         'error')
     
     def append_message(self, sender, message, tag=None):
         """添加消息到聊天窗口"""

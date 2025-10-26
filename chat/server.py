@@ -135,6 +135,7 @@ class Server:
 
                     # 检查是否是文件传输（前12字节为FILE_START标记）
                     if data.startswith(b"FILE_START|"):
+                        # 协议："FILE_START|{filename}|{len(file_data)}|FILE_END|file_data"
                         if not in_private_chat or not private_with:
                             conn.sendall("ERROR|File transfer only allowed in private chat".encode('utf-8'))
                             continue
@@ -144,8 +145,8 @@ class Server:
                         if header_end == -1:
                             continue
                         
-                        file_info = data[11:header_end].decode('utf-8')  # 去掉FILE_START|
-                        file_data = data[header_end+10:]  # 去掉|FILE_END|
+                        file_info = data[11:header_end].decode('utf-8')  # {filename}|{len(file_data)}
+                        file_data = data[header_end+10:]  # file_data
                         
                         # 处理文件传输
                         if self.handle_file_transfer(username, private_with, file_info, file_data):
@@ -369,8 +370,9 @@ class Server:
                 try:
                     # 发送文件信息和数据给接收方
                     self.online_users[receiver].sendall(
-                        f"FILE_TRANSFER|{sender}|{file_info}".encode('utf-8') + file_data
+                        f"FILE_TRANSFER|{sender}|{file_info}|".encode('utf-8') + file_data
                     )
+                    #发送的是 FILE_TRANSFER|{sender}|{filename}|{len(file_data)}|file_data
                     return True
                 except ConnectionError:
                     self.remove_online_user(receiver)

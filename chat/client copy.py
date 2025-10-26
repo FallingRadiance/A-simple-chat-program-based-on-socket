@@ -22,13 +22,15 @@ def receive_messages(sock):
              
             # 检查是否是文件传输
             if data.startswith(b"FILE_TRANSFER|"):
-                parts = data.split(b"|", 3)
-                if len(parts) == 4:
-                    _, sender, file_info, file_data = parts
+                # data: FILE_TRANSFER|{sender}|{filename}|{len(file_data)}|file_data
+                parts = data.split(b"|", 4)
+                if len(parts) == 5:
+                    _, sender, filename, filesize, file_data = parts
                     sender = sender.decode('utf-8')
-                    file_info = file_info.decode('utf-8')
+                    filename = filename.decode('utf-8')
+                    filesize = filesize.decode('utf-8')
                     
-                    print(f"\n[File from {sender}]: {file_info}")
+                    print(f"\n[File from {sender}]: {filename}，共{filesize}字节")
                     save_choice = input("Save this file? (Y/N): ").upper()
                     if save_choice == 'Y':
                         filename = input("Enter filename to save: ")
@@ -77,8 +79,8 @@ def send_file(sock, filename):
             file_data = f.read()
         
         file_info = f"{filename}|{len(file_data)}"
-        header = f"FILE_START|{file_info}|FILE_END|".encode('utf-8')
-        sock.sendall(header + file_data)
+        header = f"FILE_START|{file_info}|FILE_END|".encode('utf-8') 
+        sock.sendall(header + file_data)# "FILE_START|{filename}|{len(file_data)}|FILE_END|file_data"
         return True
     
     except Exception as e:
